@@ -17,6 +17,8 @@ from app.models.sales_data import SalesData  # noqa: F401
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.notifications import router as notifications_router
+from app.api.v1.analytics import router as analytics_router
+from app.api.v1.ai import router as ai_router
 
 
 async def seed_admin_if_needed():
@@ -110,6 +112,8 @@ app.add_middleware(
 
 app.include_router(auth_router, prefix="/api/v1", tags=["Authentication"])
 app.include_router(notifications_router, prefix="/api/v1", tags=["Notifications"])
+app.include_router(analytics_router, prefix="/api/v1/analytics", tags=["Analytics"])
+app.include_router(ai_router, prefix="/api/v1/ai", tags=["AI Assistant"])
 
 
 @app.get("/", tags=["Health"])

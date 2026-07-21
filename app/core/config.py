@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -16,7 +17,8 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     MAX_LOGIN_ATTEMPTS: int = 5
-    LOCKOUT_MINUTES: int = 15
+    # API Keys
+    GEMINI_API_KEY: Optional[str] = None
 
     CORS_ORIGINS: list[str] = [
         "http://localhost:3000",
