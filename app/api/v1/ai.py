@@ -28,11 +28,14 @@ class ChatRequest(BaseModel):
 
 async def generate_ollama_stream(prompt: str):
     """Hàm stream từ mô hình Llama3.2 chạy Local via Ollama"""
-    print("🤖 Đang sử dụng mô hình Local Llama 3.2...")
+    print("🤖 Đang sử dụng mô hình Local Llama 3.2 (llama3.2:3b)...")
     url = "http://localhost:11434/api/generate"
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            async with client.stream("POST", url, json={"model": "llama3.2", "prompt": prompt}) as response:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream("POST", url, json={"model": "llama3.2:3b", "prompt": prompt}) as response:
+                if response.status_code != 200:
+                    yield f"*(Lỗi Ollama Status {response.status_code}: Không thể chạy model llama3.2:3b)*"
+                    return
                 async for line in response.aiter_lines():
                     if line:
                         try:
@@ -59,18 +62,18 @@ async def chat_with_ai(request: ChatRequest, db: AsyncSession = Depends(get_db))
         lambda: embed_model.encode([request.question])[0].tolist()
     )
     
-    # 2. Truy vấn RAG từ PostgreSQL (Tìm 5 tài liệu gần nhất)
+    # 2. Truy vấn RAG từ PostgreSQL (Tìm 8 tài liệu gần nhất)
     res = await db.execute(
         select(RagDocument)
         .order_by(RagDocument.embedding.cosine_distance(question_embedding))
-        .limit(5)
+        .limit(10)
     )
     docs = res.scalars().all()
     
-    # Tạo chuỗi bối cảnh ngắn gọn
+    # Tạo chuỗi bối cảnh đầy đủ
     context_parts = []
     for i, d in enumerate(docs):
-        context_parts.append(f"Tài liệu {i+1} [{d.type}]: {d.title} - {d.content[:400]}")
+        context_parts.append(f"Tài liệu {i+1} [{d.type}]: {d.title} - {d.content}")
         
     context_text = "\n\n".join(context_parts)
     
@@ -82,9 +85,9 @@ Ngữ cảnh:
 - Dữ liệu được lấy từ hệ thống RAG và luôn được xem là nguồn thông tin duy nhất.
 
 Yêu cầu:
-1. Chỉ trả lời dựa trên dữ liệu được cung cấp.
-2. Không tự tạo thêm số liệu hoặc nhận định không có trong dữ liệu.
-3. Nếu thiếu dữ liệu, trả lời: "Không tìm thấy dữ liệu phù hợp trong hệ thống."
+1. Trả lời chính xác, đầy đủ và trực tiếp vào câu hỏi dựa trên DỮ LIỆU BỐI CẢNH.
+2. Không tự tạo thêm số liệu không có trong dữ liệu.
+3. Chỉ khi hoàn toàn KHÔNG có thông tin trong Bối cảnh để trả lời, mới đáp: "Không tìm thấy dữ liệu phù hợp trong hệ thống."
 4. Trả lời bằng tiếng Việt.
 
 Định dạng:
@@ -110,7 +113,7 @@ Câu hỏi: {request.question}
             raise HTTPException(status_code=400, detail="Chưa cấu hình GEMINI_API_KEY trong file .env")
         try:
             genai.configure(api_key=settings.GEMINI_API_KEY)
-            model = genai.GenerativeModel('gemini-2.0-flash')
+            model = genai.GenerativeModel('gemini-3.5-flash')
             gemini_response = await asyncio.to_thread(
                 lambda: model.generate_content(prompt, stream=True)
             )
@@ -144,7 +147,7 @@ Câu hỏi: {request.question}
         if settings.GEMINI_API_KEY and len(settings.GEMINI_API_KEY.strip()) > 10:
             try:
                 genai.configure(api_key=settings.GEMINI_API_KEY)
-                models_to_try = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash']
+                models_to_try = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash','gemini-3.5-flash']
                 for model_name in models_to_try:
                     try:
                         m = genai.GenerativeModel(model_name)
