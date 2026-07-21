@@ -1,0 +1,38 @@
+[
+  {
+    "id": "6fd9a5f8-7ead-4edf-98a7-501b63397024",
+    "type": "strategic_insight",
+    "title": "Định hướng phát triển kênh phân phối chiến lược",
+    "content": "Phân tích hệ thống cho thấy kênh E-commerce đang mang lại doanh thu cao nhất. Định hướng trong quý tới là tăng cường đổ ngân sách marketing vào kênh E-commerce, đồng thời đàm phán với đối tác vận chuyển để giảm thời gian giao hàng (delivery_days). Đối với các kênh kém hiệu quả hơn, cần tung ra các gói combo (Multipack/Carton) với giá ưu đãi để kích cầu."
+  },
+  {
+    "id": "762a4889-e8d7-47fd-a7b5-57c8d8399ec8",
+    "type": "sales_forecast",
+    "title": "Dự báo và chiến lược bán hàng theo danh mục",
+    "content": "Dựa trên tốc độ tiêu thụ, danh mục Milk đang là mặt hàng chủ lực, mang lại dòng tiền chính. Đề xuất: (1) Tăng mức cảnh báo tồn kho (safety stock) cho danh mục Milk lên 20% để tránh rủi ro đứt gãy chuỗi cung ứng. (2) Chạy các chiến dịch Flash Sale để xả kho đối với các danh mục có mức tiêu thụ chậm, giải phóng dòng vốn."
+  },
+  {
+    "id": "e43c89ec-6e30-4c82-9ad2-955da8e21b8f",
+    "type": "promotion_strategy",
+    "title": "Phân tích tác động và chiến lược Khuyến mãi (Promotion)",
+    "content": "Dữ liệu lịch sử chỉ ra rằng, các sản phẩm được gắn cờ khuyến mãi (promotion_flag = 1) có tốc độ bán ra (units_sold) nhanh gấp 1.8 lần so với hàng nguyên giá. Chiến lược tới: Tập trung triển khai các voucher chiết khấu dựa trên 'Giá trị đơn hàng tối thiểu' hoặc 'Mua số lượng lớn' thay vì giảm giá lẻ từng đơn vị. Điều này giúp tăng giá trị trung bình trên mỗi hóa đơn (AOV)."
+  },
+  {
+    "id": "4cbe0fcd-ddd0-49a1-a511-198496836bd6",
+    "type": "inventory_management",
+    "title": "Tối ưu hóa quản lý kho hàng và Logistics",
+    "content": "Cảnh báo: Tỷ lệ khách mua lại (Retention Rate) có xu hướng giảm mạnh khi số ngày giao hàng (delivery_days) vượt quá 5 ngày. Hướng giải quyết: Xây dựng thêm kho trung chuyển (Hub) tại các khu vực trọng điểm như Pl-Central và Pl-South để tối ưu tuyến đường. Luân chuyển hàng tồn kho chủ động dựa trên sức mua thực tế của từng vùng."
+  },
+  {
+    "id": "4548f4d7-17aa-4001-a83c-d1c5d49fcd2e",
+    "type": "executive_summary",
+    "title": "Kế hoạch hành động (Action Plan) quý tới cho đội ngũ",
+    "content": "1. Sales Team: Xây dựng KPIs bán chéo (cross-sell) các sản phẩm phụ đính kèm với danh mục Milk trên nền tảng E-commerce. 2. Marketing Team: Tung chiến dịch quảng cáo Remarketing tới tệp khách hàng từng mua gói Single để upsell lên gói Multipack. 3. Supply Chain: Thiết lập cảnh báo tự động khi stock_available giảm xuống dưới 15% tổng lượng bán trung bình tháng."
+  },
+  {
+    "id": "218a59b0-6c48-4d8b-a60d-99a23825f7e2",
+    "type": "ai_query_guidance",
+    "title": "Hướng dẫn truy vấn RAG cho Trợ lý ảo AI",
+    "content": "Khi người dùng hỏi về 'Tương lai', 'Dự báo', 'Làm sao để tăng doanh số', hoặc 'Nên bán gì', AI cần ưu tiên truy xuất các tài liệu có type là 'strategic_insight', 'sales_forecast', và 'promotion_strategy' để đưa ra lời khuyên tổng thể kết hợp với các chỉ số bán hàng thực tế từ database."
+  }
+]
