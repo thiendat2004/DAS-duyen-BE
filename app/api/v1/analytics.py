@@ -102,12 +102,13 @@ async def get_warehouse_data(db: AsyncSession = Depends(get_db)):
 async def get_sites_data(db: AsyncSession = Depends(get_db)):
     """API cho trang Kênh & Khu vực"""
     revenue_expr = func.sum(SalesData.price_unit * SalesData.units_sold)
+    units_expr = func.sum(SalesData.units_sold)
     
     # By Channel
-    q_channel = select(SalesData.channel, revenue_expr)\
+    q_channel = select(SalesData.channel, revenue_expr, units_expr)\
         .group_by(SalesData.channel)
     res_channel = await db.execute(q_channel)
-    by_channel = [{"channel": row[0], "revenue": row[1]} for row in res_channel.all()]
+    by_channel = [{"channel": row[0], "revenue": row[1], "units_sold": row[2]} for row in res_channel.all()]
     
     # By Region
     q_region = select(SalesData.region, revenue_expr)\
