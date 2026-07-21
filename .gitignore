@@ -1,0 +1,28 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment Variables
+.env
+.env.*
+!.env.example
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+
+# Logs & Temporary files
+*.log
+models.txt
+.pytest_cache/
+
+# IDE files
+.vscode/
+.idea/
+
+# Database / OS
+*.sqlite3
+.DS_Store

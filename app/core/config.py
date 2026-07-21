@@ -17,8 +17,9 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     MAX_LOGIN_ATTEMPTS: int = 5
-    # API Keys
+    # API Keys & AI Config
     GEMINI_API_KEY: Optional[str] = None
+    AI_PROVIDER: str = "auto"  # Lựa chọn: "auto", "gemini", "llama"
 
     CORS_ORIGINS: list[str] = [
         "http://localhost:3000",

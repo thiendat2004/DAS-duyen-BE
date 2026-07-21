@@ -1,77 +1,194 @@
+import asyncio
+import json
+import httpx
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
+from sqlalchemy import select
+from sentence_transformers import SentenceTransformer
 
 from app.core.database import get_db
-from app.models.sales_data import SalesData
+from app.models.rag_document import RagDocument
 from app.core.config import settings
 
-try:
-    from google import genai
-except ImportError:
-    genai = None
+import google.generativeai as genai
 
 router = APIRouter()
 
+# Warm load embedding model into memory on startup
+print("Đang khởi tạo model embedding sentence-transformers...")
+embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+
+
 class ChatRequest(BaseModel):
     question: str
+    provider: Optional[str] = None  # Lựa chọn tùy chỉnh từ FE: "auto", "gemini", "llama"
+
+async def generate_ollama_stream(prompt: str):
+    """Hàm stream từ mô hình Llama3.2 chạy Local via Ollama"""
+    print("🤖 Đang sử dụng mô hình Local Llama 3.2...")
+    url = "http://localhost:11434/api/generate"
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            async with client.stream("POST", url, json={"model": "llama3.2", "prompt": prompt}) as response:
+                async for line in response.aiter_lines():
+                    if line:
+                        try:
+                            data = json.loads(line)
+                            chunk = data.get("response", "")
+                            if chunk:
+                                yield chunk
+                                await asyncio.sleep(0.01)
+                        except Exception:
+                            continue
+    except Exception as e:
+        print(f"Lỗi khi gọi Ollama Local: {e}")
+        yield f"\n\n*(Không thể kết nối với mô hình Llama 3.2 Local: {str(e)})*"
 
 @router.post("/chat")
 async def chat_with_ai(request: ChatRequest, db: AsyncSession = Depends(get_db)):
-    """API RAG đơn giản với Gemini AI"""
-    if not settings.GEMINI_API_KEY or not genai:
-        raise HTTPException(
-            status_code=500, 
-            detail="Tính năng AI chưa được cấu hình. Vui lòng cài đặt GEMINI_API_KEY trong .env và cài package google-genai."
-        )
-
-    # 1. Thu thập "Context" đơn giản từ Database (RAG)
-    # Lấy tổng doanh thu
-    rev_expr = func.sum(SalesData.price_unit * SalesData.units_sold)
-    res_rev = await db.execute(select(rev_expr))
-    total_rev = res_rev.scalar() or 0
+    """API RAG + GenAI chọn lựa Provider (Gemini / Llama 3.2 / Auto)"""
     
-    # Lấy top 3 danh mục
-    res_cat = await db.execute(
-        select(SalesData.category, rev_expr)\
-        .group_by(SalesData.category)\
-        .order_by(desc(rev_expr)).limit(3)
+    # Xác định provider muốn dùng (Ưu tiên từ Request body -> rồi tới file .env)
+    chosen_provider = (request.provider or getattr(settings, "AI_PROVIDER", "auto")).lower()
+    
+    # 1. Mã hóa câu hỏi thành Vector không làm nghẽn Async Event Loop
+    question_embedding = await asyncio.to_thread(
+        lambda: embed_model.encode([request.question])[0].tolist()
     )
-    top_categories = ", ".join([f"{row[0]} ({row[1]:.0f} đ)" for row in res_cat.all()])
-
-    # Lấy top 3 kênh bán
-    res_chan = await db.execute(
-        select(SalesData.channel, rev_expr)\
-        .group_by(SalesData.channel)\
-        .order_by(desc(rev_expr)).limit(3)
+    
+    # 2. Truy vấn RAG từ PostgreSQL (Tìm 5 tài liệu gần nhất)
+    res = await db.execute(
+        select(RagDocument)
+        .order_by(RagDocument.embedding.cosine_distance(question_embedding))
+        .limit(5)
     )
-    top_channels = ", ".join([f"{row[0]} ({row[1]:.0f} đ)" for row in res_chan.all()])
-
-    # 2. Xây dựng Prompt
-    context = f"""
-    DỮ LIỆU TÓM TẮT HỆ THỐNG:
-    - Tổng doanh thu toàn hệ thống: {total_rev:,.0f} đ
-    - Top danh mục bán chạy: {top_categories}
-    - Top kênh bán hàng: {top_channels}
-    """
-
-    prompt = f"""Bạn là trợ lý AI chuyên phân tích dữ liệu bán hàng của hệ thống quản lý FMCG (Data Analytics System - DAS).
-    Dựa vào thông tin bối cảnh (context) lấy từ Database sau đây, hãy trả lời câu hỏi của người dùng. Nếu câu hỏi nằm ngoài ngữ cảnh dữ liệu, hãy trả lời theo kiến thức của bạn hoặc khuyên họ hỏi về số liệu.
-    Luôn trả lời ngắn gọn, chuyên nghiệp, sử dụng tiếng Việt.
+    docs = res.scalars().all()
     
-    {context}
+    # Tạo chuỗi bối cảnh ngắn gọn
+    context_parts = []
+    for i, d in enumerate(docs):
+        context_parts.append(f"Tài liệu {i+1} [{d.type}]: {d.title} - {d.content[:400]}")
+        
+    context_text = "\n\n".join(context_parts)
     
-    Câu hỏi của người dùng: {request.question}
-    """
+    # 3. Xây dựng Prompt chuẩn hóa
+    prompt = f"""Bạn là chuyên gia phân tích dữ liệu bán hàng FMCG của hệ thống DAS.
 
-    # 3. Gọi Gemini API
-    try:
-        client = genai.Client(api_key=settings.GEMINI_API_KEY)
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
-        )
-        return {"answer": response.text}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi khi gọi AI: {str(e)}")
+Ngữ cảnh:
+- Hệ thống lưu trữ dữ liệu về doanh số, số lượng bán, tồn kho, SKU, thương hiệu, danh mục sản phẩm, khu vực, kênh bán hàng và thời gian.
+- Dữ liệu được lấy từ hệ thống RAG và luôn được xem là nguồn thông tin duy nhất.
+
+Yêu cầu:
+1. Chỉ trả lời dựa trên dữ liệu được cung cấp.
+2. Không tự tạo thêm số liệu hoặc nhận định không có trong dữ liệu.
+3. Nếu thiếu dữ liệu, trả lời: "Không tìm thấy dữ liệu phù hợp trong hệ thống."
+4. Trả lời bằng tiếng Việt.
+
+Định dạng:
+- Dùng tiêu đề ngắn nếu cần.
+- In đậm các giá trị quan trọng.
+- Sử dụng danh sách gạch đầu dòng.
+
+=== DỮ LIỆU BỐI CẢNH (RAG CONTEXT) ===
+{context_text}
+=======================================
+
+Câu hỏi: {request.question}
+"""
+
+    # 4. Xử lý theo Provider được chỉ định
+    if chosen_provider == "llama":
+        # Ép dùng Llama 3.2 Local
+        return StreamingResponse(generate_ollama_stream(prompt), media_type="text/plain")
+        
+    elif chosen_provider == "gemini":
+        # Ép dùng Cloud Gemini
+        if not settings.GEMINI_API_KEY:
+            raise HTTPException(status_code=400, detail="Chưa cấu hình GEMINI_API_KEY trong file .env")
+        try:
+            genai.configure(api_key=settings.GEMINI_API_KEY)
+            model = genai.GenerativeModel('gemini-2.0-flash')
+            gemini_response = await asyncio.to_thread(
+                lambda: model.generate_content(prompt, stream=True)
+            )
+            
+            async def async_gemini_generator():
+                try:
+                    for chunk in gemini_response:
+                        text_content = ""
+                        try:
+                            text_content = chunk.text
+                        except Exception:
+                            if hasattr(chunk, 'candidates') and chunk.candidates:
+                                c = chunk.candidates[0]
+                                if c.content and c.content.parts:
+                                    text_content = "".join([p.text for p in c.content.parts if hasattr(p, 'text')])
+                        if text_content:
+                            yield text_content
+                            await asyncio.sleep(0.01)
+                except Exception as stream_err:
+                    yield f"\n\n*(Lỗi gián đoạn stream: {str(stream_err)})*"
+                        
+            return StreamingResponse(async_gemini_generator(), media_type="text/plain")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Lỗi Cloud Gemini: {str(e)}")
+
+    else:
+        # Chế độ "auto": Thử Gemini trước, nếu bị lỗi/429 sẽ tự chuyển sang Llama 3.2 Local
+        use_local = False
+        gemini_response = None
+        
+        if settings.GEMINI_API_KEY and len(settings.GEMINI_API_KEY.strip()) > 10:
+            try:
+                genai.configure(api_key=settings.GEMINI_API_KEY)
+                models_to_try = ['gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-1.5-flash']
+                for model_name in models_to_try:
+                    try:
+                        m = genai.GenerativeModel(model_name)
+                        current_model = m
+                        gemini_response = await asyncio.to_thread(
+                            lambda: current_model.generate_content(prompt, stream=True)
+                        )
+                        print(f"⚡ Đã kết nối thành công với Cloud Gemini ({model_name})")
+                        break
+                    except Exception as e:
+                        err_str = str(e)
+                        if "429" in err_str or "Quota" in err_str or "rate-limits" in err_str or "404" in err_str:
+                            print(f"Model {model_name} bị hạn chế Quota hoặc lỗi, thử model tiếp theo...")
+                            continue
+                        else:
+                            raise e
+                            
+                if gemini_response is None:
+                    print("⚠️ Tất cả các model Cloud Gemini đều bị hết Quota. Chuyển sang mô hình Local Llama 3.2...")
+                    use_local = True
+            except Exception as e:
+                print(f"⚠️ Lỗi Cloud Gemini: {e}. Chuyển sang mô hình Local Llama 3.2...")
+                use_local = True
+        else:
+            use_local = True
+
+        if use_local:
+            return StreamingResponse(generate_ollama_stream(prompt), media_type="text/plain")
+        else:
+            async def async_gemini_generator():
+                try:
+                    for chunk in gemini_response:
+                        text_content = ""
+                        try:
+                            text_content = chunk.text
+                        except Exception:
+                            if hasattr(chunk, 'candidates') and chunk.candidates:
+                                c = chunk.candidates[0]
+                                if c.content and c.content.parts:
+                                    text_content = "".join([p.text for p in c.content.parts if hasattr(p, 'text')])
+                        if text_content:
+                            yield text_content
+                            await asyncio.sleep(0.01)
+                except Exception as stream_err:
+                    yield f"\n\n*(Lỗi gián đoạn stream: {str(stream_err)})*"
+                        
+            return StreamingResponse(async_gemini_generator(), media_type="text/plain")
